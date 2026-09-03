@@ -1,0 +1,8 @@
+path: D:/AI_pothole_detection/data/pothole_test
+
+train: images
+val: images
+test: images
+
+names:
+  0: pothole

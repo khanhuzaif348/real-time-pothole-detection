@@ -1,0 +1,56 @@
+# =========================
+# Python
+# =========================
+venv/
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+
+# =========================
+# IDE
+# =========================
+.vscode/
+.idea/
+
+# =========================
+# YOLO generated files
+# =========================
+runs/
+outputs/
+
+# =========================
+# Dataset
+# =========================
+data/train/images/
+data/train/labels/
+
+data/valid/images/
+data/valid/labels/
+
+data/test/images/
+data/test/labels/
+
+data/my_test/
+
+# =========================
+# Detection logs
+# =========================
+logger/detection_logs.csv
+
+# =========================
+# YOLO model files
+# =========================
+models/*.pt
+yolo11n.pt
+
+# =========================
+# Python/Jupyter
+# =========================
+.ipynb_checkpoints/
+
+# =========================
+# OS
+# =========================
+.DS_Store
+Thumbs.db
