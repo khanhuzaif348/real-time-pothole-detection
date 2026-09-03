@@ -2,14 +2,16 @@ import platform
 
 
 def speak(message):
-    # Voice alerts are supported locally on Windows.
-    # Streamlit Cloud runs on Linux.
+
+    # Streamlit Cloud runs Linux.
+    # Voice alerts are only enabled on Windows.
     if platform.system() != "Windows":
         return
 
     import pyttsx3
 
     engine = pyttsx3.init("sapi5")
+
     engine.setProperty("rate", 160)
     engine.setProperty("volume", 1.0)
 
