@@ -1,23 +1,33 @@
 import streamlit as st
+import cv2
 import sys
+import time
 from pathlib import Path
 
-# Project root: D:\AI_pothole_detection
+from PIL import Image
+from ultralytics import YOLO
+from streamlit_webrtc import webrtc_streamer, VideoProcessorBase
+
+
+# =========================================================
+# PROJECT ROOT
+# =========================================================
+
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
-# Add project root to Python's import path
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from ultralytics import YOLO
+
+# =========================================================
+# VOICE ALERT
+# =========================================================
+
 from src.detection.voice_alert import speak
-from PIL import Image
-import tempfile
-import os
 
 
-# -----------------------------
-# Page configuration
-# -----------------------------
+# =========================================================
+# PAGE CONFIGURATION
+# =========================================================
 
 st.set_page_config(
     page_title="Pothole Detection",
@@ -26,252 +36,430 @@ st.set_page_config(
 )
 
 
-# -----------------------------
-# Title
-# -----------------------------
+# =========================================================
+# TITLE
+# =========================================================
 
 st.title("🚧 Pothole Detection System")
-st.write("Choose a model and upload a road image.")
 
-
-# -----------------------------
-# Model selection
-# -----------------------------
-
-model_option = st.selectbox(
-    "Choose Model",
-    [
-        "My Trained Model",
-        "Pretrained Pothole Model"
-    ]
+st.write(
+    "Pothole detection using a pretrained YOLO model."
 )
 
 
-# -----------------------------
-# Load selected model
-# -----------------------------
+# =========================================================
+# INPUT SELECTION
+# =========================================================
 
-if model_option == "My Trained Model":
+input_option = st.radio(
+    "Choose Input",
+    [
+        "Upload Image",
+        "Live Camera"
+    ],
+    horizontal=True
+)
 
-    model_path = (
-        "runs/detect/outputs/"
-        "pothole_model-5/weights/best.pt"
-    )
 
-else:
+# =========================================================
+# PRETRAINED MODEL
+# =========================================================
 
-    model_path = "models/best.pt"
+model_path = PROJECT_ROOT / "models" / "best.pt"
 
+# The pretrained model contains:
+# 0 = pothole
+
+pothole_class_id = 0
+
+
+# =========================================================
+# LOAD MODEL
+# =========================================================
 
 @st.cache_resource
 def load_model(path):
-
-    return YOLO(path)
+    return YOLO(str(path))
 
 
 model = load_model(model_path)
 
 
-# -----------------------------
-# Upload image
-# -----------------------------
+# =========================================================
+# UPLOAD IMAGE
+# =========================================================
 
-uploaded_file = st.file_uploader(
-    "Upload a road image",
-    type=["jpg", "jpeg", "png"]
-)
+if input_option == "Upload Image":
 
+    st.subheader("📁 Upload Road Image")
 
-if uploaded_file is not None:
-
-    image = Image.open(uploaded_file)
-
-    st.subheader("Original Image")
-
-    st.image(
-        image,
-        use_container_width=True
+    uploaded_file = st.file_uploader(
+        "Choose an image from your folder",
+        type=["jpg", "jpeg", "png"]
     )
 
+    if uploaded_file is not None:
 
-    # -------------------------
-    # Temporary image
-    # -------------------------
+        # ---------------------------------------------
+        # Read image
+        # ---------------------------------------------
 
-    with tempfile.NamedTemporaryFile(
-        delete=False,
-        suffix=".jpg"
-    ) as temp_file:
+        image = Image.open(uploaded_file)
 
-        image.save(temp_file.name)
+        st.subheader("Original Image")
 
-        temp_path = temp_file.name
+        st.image(
+            image,
+            use_container_width=True
+        )
 
+        # ---------------------------------------------
+        # Detect button
+        # ---------------------------------------------
 
-    # -------------------------
-    # Prediction
-    # -------------------------
+        if st.button("🔍 Detect Potholes"):
 
-    results = model.predict(
-        source=temp_path,
-        conf=0.50,
-        verbose=False
-    )
+            results = model.predict(
+                source=image,
+                conf=0.50,
+                verbose=False
+            )
 
+            result = results[0]
 
-    # -------------------------
-    # Count potholes
-    # -------------------------
+            pothole_count = 0
+            confidences = []
 
-    pothole_count = 0
-    confidences = []
+            # -----------------------------------------
+            # Process detections
+            # -----------------------------------------
 
+            for box in result.boxes:
 
-    for result in results:
+                class_id = int(box.cls[0])
+                confidence = float(box.conf[0])
 
-        for box in result.boxes:
-
-            class_id = int(box.cls[0])
-            confidence = float(box.conf[0])
-
-            # --------------------------------
-            # Different class IDs
-            # --------------------------------
-
-            if model_option == "My Trained Model":
-
-                # Your model:
-                # 0 = crocodile crack
-                # 1 = longitudinal crack
-                # 2 = pothole
-
-                if class_id == 2:
+                if class_id == pothole_class_id:
 
                     pothole_count += 1
                     confidences.append(confidence)
+
+            # -----------------------------------------
+            # Result image
+            # -----------------------------------------
+
+            result_image = result.plot()
+
+            st.subheader("Detection Result")
+
+            st.image(
+                result_image,
+                use_container_width=True
+            )
+
+            # -----------------------------------------
+            # Calculate average confidence
+            # -----------------------------------------
+
+            if confidences:
+
+                average_confidence = (
+                    sum(confidences)
+                    / len(confidences)
+                    * 100
+                )
 
             else:
 
-                # Pretrained model:
-                # 0 = pothole
-
-                if class_id == 0:
-
-                    pothole_count += 1
-                    confidences.append(confidence)
+                average_confidence = 0
 
 
-    # -------------------------
-    # Display result
-    # -------------------------
+            # -----------------------------------------
+            # Metrics
+            # -----------------------------------------
 
-    result_image = results[0].plot()
+            col1, col2 = st.columns(2)
 
-    st.subheader("Detection Result")
+            with col1:
 
-    st.image(
-        result_image,
-        use_container_width=True
+                st.metric(
+                    "🚧 Potholes Detected",
+                    pothole_count
+                )
+
+            with col2:
+
+                if confidences:
+
+                    st.metric(
+                        "📊 Average Confidence",
+                        f"{average_confidence:.2f}%"
+                    )
+
+                else:
+
+                    st.metric(
+                        "📊 Average Confidence",
+                        "N/A"
+                    )
+
+
+            # -----------------------------------------
+            # Individual detections
+            # -----------------------------------------
+
+            if confidences:
+
+                st.subheader("📈 Individual Detections")
+
+                for i, confidence in enumerate(
+                    confidences,
+                    start=1
+                ):
+
+                    st.write(
+                        f"Pothole {i}: "
+                        f"{confidence * 100:.2f}%"
+                    )
+
+
+                # =====================================
+                # VOICE COMMAND
+                # =====================================
+
+                if pothole_count == 1:
+
+                    speak(
+                        f"Please ride safely. "
+                        f"One pothole detected ahead. "
+                        f"Confidence is "
+                        f"{average_confidence:.1f} percent."
+                    )
+
+                else:
+
+                    speak(
+                        f"Please ride safely. "
+                        f"{pothole_count} potholes detected ahead. "
+                        f"Average confidence is "
+                        f"{average_confidence:.1f} percent."
+                    )
+
+
+            else:
+
+                st.warning(
+                    "No potholes detected."
+                )
+
+                speak(
+                    "No potholes detected. "
+                    "You can continue safely."
+                )
+
+
+# =========================================================
+# LIVE CAMERA
+# =========================================================
+
+else:
+
+    st.subheader("📷 Live Camera")
+
+    st.write(
+        "Click START and allow camera permission."
     )
 
 
-    # -------------------------
-    # Metrics
-    # -------------------------
+    # =====================================================
+    # LIVE CAMERA PROCESSOR
+    # =====================================================
 
-    col1, col2 = st.columns(2)
+    class PotholeProcessor(VideoProcessorBase):
+
+        def __init__(self):
+
+            self.pothole_count = 0
+
+            self.average_confidence = 0.0
+
+            # Time of previous voice alert
+            self.last_voice_time = 0
+
+            # Wait 5 seconds before speaking again
+            self.voice_cooldown = 5
 
 
-    with col1:
+        def recv(self, frame):
 
-        st.metric(
-            "Potholes Detected",
-            pothole_count
-        )
+            # -----------------------------------------
+            # Convert camera frame
+            # -----------------------------------------
 
-
-    with col2:
-
-        if confidences:
-
-            average_confidence = (
-                sum(confidences)
-                / len(confidences)
-                * 100
-            )
-
-            st.metric(
-                "Average Confidence",
-                f"{average_confidence:.2f}%"
-            )
-
-        else:
-
-            st.metric(
-                "Average Confidence",
-                "N/A"
+            img = frame.to_ndarray(
+                format="bgr24"
             )
 
 
-    # -------------------------
-    # Individual detections
-    # -------------------------
+            # -----------------------------------------
+            # YOLO prediction
+            # -----------------------------------------
 
-    if confidences:
-
-        st.subheader("Individual Detections")
-
-        for i, confidence in enumerate(
-            confidences,
-            start=1
-        ):
-
-            st.write(
-                f"Pothole {i}: "
-                f"{confidence * 100:.2f}%"
+            results = model.predict(
+                source=img,
+                conf=0.50,
+                verbose=False
             )
 
-    else:
-
-        st.warning(
-            "No potholes detected."
-        )
+            result = results[0]
 
 
-    # -------------------------
-    # Voice Alert logic 
-    # -------------------------
+            # -----------------------------------------
+            # Process detections
+            # -----------------------------------------
 
-    #--------------
-# Voice Alert
-# -------------------------
+            pothole_count = 0
+            confidences = []
 
-    if pothole_count > 0:
 
-        average_confidence = (
-        sum(confidences)
-        / len(confidences)
-        * 100
-        )
+            for box in result.boxes:
 
-    if pothole_count == 1:
+                class_id = int(box.cls[0])
+                confidence = float(box.conf[0])
 
-        speak(
-            f"Please ride safely. "
-            f"One pothole detected ahead. "
-            f"Confidence is {average_confidence:.1f} percent."
-        )
+                if class_id == pothole_class_id:
 
-    else:
+                    pothole_count += 1
 
-        speak(
-            f"Please ride safely. "
-            f"{pothole_count} potholes detected ahead. "
-            f"Average confidence is {average_confidence:.1f} percent."
-        )
+                    confidences.append(
+                        confidence
+                    )
 
-    # -------------------------
-    # Remove temporary file
-    # -------------------------
 
-    os.remove(temp_path)
+            # -----------------------------------------
+            # Average confidence
+            # -----------------------------------------
+
+            if confidences:
+
+                average_confidence = (
+                    sum(confidences)
+                    / len(confidences)
+                    * 100
+                )
+
+            else:
+
+                average_confidence = 0.0
+
+
+            # -----------------------------------------
+            # Save values
+            # -----------------------------------------
+
+            self.pothole_count = pothole_count
+
+            self.average_confidence = (
+                average_confidence
+            )
+
+
+            # =========================================
+            # LIVE VOICE ALERT
+            # =========================================
+
+            current_time = time.time()
+
+
+            if (
+                pothole_count > 0
+                and
+                current_time - self.last_voice_time
+                >= self.voice_cooldown
+            ):
+
+                if pothole_count == 1:
+
+                    speak(
+                        f"Warning. "
+                        f"One pothole detected ahead. "
+                        f"Confidence is "
+                        f"{average_confidence:.0f} percent."
+                    )
+
+                else:
+
+                    speak(
+                        f"Warning. "
+                        f"{pothole_count} potholes detected ahead. "
+                        f"Average confidence is "
+                        f"{average_confidence:.0f} percent."
+                    )
+
+
+                self.last_voice_time = current_time
+
+
+            # -----------------------------------------
+            # Draw YOLO result
+            # -----------------------------------------
+
+            annotated_frame = result.plot()
+
+
+            # -----------------------------------------
+            # Display pothole count
+            # -----------------------------------------
+
+            cv2.putText(
+                annotated_frame,
+                f"Potholes: {pothole_count}",
+                (20, 40),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                1,
+                (0, 255, 0),
+                2
+            )
+
+
+            # -----------------------------------------
+            # Display confidence
+            # -----------------------------------------
+
+            cv2.putText(
+                annotated_frame,
+                f"Confidence: {average_confidence:.2f}%",
+                (20, 80),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.8,
+                (0, 255, 0),
+                2
+            )
+
+
+            # -----------------------------------------
+            # Return frame
+            # -----------------------------------------
+
+            return frame.from_ndarray(
+                annotated_frame,
+                format="bgr24"
+            )
+
+
+    # =====================================================
+    # START CAMERA
+    # =====================================================
+
+    webrtc_streamer(
+        key="pothole-live-camera",
+
+        video_processor_factory=PotholeProcessor,
+
+        media_stream_constraints={
+            "video": True,
+            "audio": False
+        },
+
+        async_processing=True
+    )
