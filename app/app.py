@@ -345,6 +345,12 @@ else:
 
             # Wait 5 seconds before speaking again
             self.voice_cooldown = 5
+            #cpu optimization
+            self.frame_count=0
+            #run yolo every 3rd frame 
+            self.process_every = 3
+            #store last processed frame
+            self.last_processed_frame = None
 
 
         def recv(self, frame):
@@ -356,8 +362,16 @@ else:
             img = frame.to_ndarray(
                 format="bgr24"
             )
-
-
+            self.frame_count += 1
+            
+            # CPU optimization: Process every 3rd frame
+            if self.frame_count % self.process_every != 0:
+                if self.last_processed_frame is not None:
+                    return frame.from_ndarray(
+                        self.last_processed_frame,
+                        format="bgr24"
+                    )
+                return frame 
             # -----------------------------------------
             # YOLO prediction
             # -----------------------------------------
