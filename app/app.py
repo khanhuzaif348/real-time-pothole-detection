@@ -2,6 +2,8 @@ import streamlit as st
 import cv2
 import sys
 import time
+import platform
+import streamlit.components.v1 as components
 from pathlib import Path
 
 from PIL import Image
@@ -23,6 +25,57 @@ sys.path.insert(0, str(PROJECT_ROOT))
 # =========================================================
 
 from src.detection.voice_alert import speak
+
+
+def browser_speak(message):
+    """
+    Browser-based text-to-speech.
+
+    This is used on Streamlit Cloud because
+    pyttsx3/SAPI5 is Windows-only.
+    """
+
+    # Escape characters for JavaScript
+    safe_message = (
+        message
+        .replace("\\", "\\\\")
+        .replace("'", "\\'")
+        .replace("\n", " ")
+    )
+
+    components.html(
+        f"""
+        <script>
+            const message = new SpeechSynthesisUtterance(
+                '{safe_message}'
+            );
+
+            message.rate = 1.0;
+            message.volume = 1.0;
+
+            window.speechSynthesis.cancel();
+            window.speechSynthesis.speak(message);
+        </script>
+        """,
+        height=0
+    )
+
+
+def voice_alert(message):
+    """
+    Use Windows TTS locally.
+    Use browser TTS on Streamlit Cloud.
+    """
+
+    if platform.system() == "Windows":
+
+        # Local Windows computer
+        speak(message)
+
+    else:
+
+        # Streamlit Cloud / Linux
+        browser_speak(message)
 
 
 # =========================================================
@@ -67,7 +120,7 @@ input_option = st.radio(
 
 model_path = PROJECT_ROOT / "models" / "best.pt"
 
-# The pretrained model contains:
+# Pretrained model:
 # 0 = pothole
 
 pothole_class_id = 0
@@ -224,26 +277,28 @@ if input_option == "Upload Image":
 
 
                 # =====================================
-                # VOICE COMMAND
+                # VOICE ALERT
                 # =====================================
 
                 if pothole_count == 1:
 
-                    speak(
-                        f"Please ride safely. "
-                        f"One pothole detected ahead. "
+                    message = (
+                        "Please ride safely. "
+                        "One pothole detected ahead. "
                         f"Confidence is "
                         f"{average_confidence:.1f} percent."
                     )
 
                 else:
 
-                    speak(
-                        f"Please ride safely. "
+                    message = (
+                        "Please ride safely. "
                         f"{pothole_count} potholes detected ahead. "
                         f"Average confidence is "
                         f"{average_confidence:.1f} percent."
                     )
+
+                voice_alert(message)
 
 
             else:
@@ -252,10 +307,12 @@ if input_option == "Upload Image":
                     "No potholes detected."
                 )
 
-                speak(
+                message = (
                     "No potholes detected. "
                     "You can continue safely."
                 )
+
+                voice_alert(message)
 
 
 # =========================================================
@@ -380,21 +437,28 @@ else:
 
                 if pothole_count == 1:
 
-                    speak(
-                        f"Warning. "
-                        f"One pothole detected ahead. "
+                    message = (
+                        "Warning. "
+                        "One pothole detected ahead. "
                         f"Confidence is "
                         f"{average_confidence:.0f} percent."
                     )
 
                 else:
 
-                    speak(
-                        f"Warning. "
+                    message = (
+                        "Warning. "
                         f"{pothole_count} potholes detected ahead. "
                         f"Average confidence is "
                         f"{average_confidence:.0f} percent."
                     )
+
+
+                # -------------------------------------
+                # Voice
+                # -------------------------------------
+
+                voice_alert(message)
 
 
                 self.last_voice_time = current_time
@@ -450,17 +514,20 @@ else:
     # =====================================================
     # START CAMERA
     # =====================================================
-    
+
     webrtc_streamer(
         key="pothole-live-camera",
 
         video_processor_factory=PotholeProcessor,
+
         rtc_configuration={
             "iceServers": [
                 {
-                    "urls": ["stun:stun.l.google.com:19302"]
+                    "urls": [
+                        "stun:stun.l.google.com:19302"
+                    ]
                 }
-            ]       
+            ]
         },
 
         media_stream_constraints={
