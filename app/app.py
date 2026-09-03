@@ -450,11 +450,18 @@ else:
     # =====================================================
     # START CAMERA
     # =====================================================
-
+    RTC_CONFIGURATION = {
+    "iceServers": [
+        {
+            "urls": ["stun:stun.l.google.com:19302"]
+        }
+    ]
+}
     webrtc_streamer(
         key="pothole-live-camera",
 
         video_processor_factory=PotholeProcessor,
+        rfc_configuration=RTC_CONFIGURATION,
 
         media_stream_constraints={
             "video": True,
