@@ -531,7 +531,12 @@ else:
         },
 
         media_stream_constraints={
-            "video": True,
+            "video": {
+                "facingMode": {
+                    "ideal" : "environment"
+                }
+
+            },
             "audio": False
         },
 
