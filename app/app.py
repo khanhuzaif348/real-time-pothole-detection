@@ -461,7 +461,7 @@ else:
         key="pothole-live-camera",
 
         video_processor_factory=PotholeProcessor,
-        rfc_configuration=RTC_CONFIGURATION,
+        rtc_configuration=RTC_CONFIGURATION,
 
         media_stream_constraints={
             "video": True,
