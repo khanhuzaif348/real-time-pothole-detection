@@ -29,13 +29,12 @@ from src.detection.voice_alert import speak
 
 def browser_speak(message):
     """
-    Browser-based text-to-speech.
+    Browser text-to-speech.
 
-    This is used on Streamlit Cloud because
-    pyttsx3/SAPI5 is Windows-only.
+    Used for Upload Image on Streamlit Cloud.
+    Do NOT call this from the WebRTC recv() function.
     """
 
-    # Escape characters for JavaScript
     safe_message = (
         message
         .replace("\\", "\\\\")
@@ -63,18 +62,21 @@ def browser_speak(message):
 
 def voice_alert(message):
     """
-    Use Windows TTS locally.
-    Use browser TTS on Streamlit Cloud.
+    Voice for normal Streamlit operations.
+
+    Windows:
+        pyttsx3 / SAPI5
+
+    Streamlit Cloud:
+        Browser TTS
     """
 
     if platform.system() == "Windows":
 
-        # Local Windows computer
         speak(message)
 
     else:
 
-        # Streamlit Cloud / Linux
         browser_speak(message)
 
 
@@ -120,7 +122,7 @@ input_option = st.radio(
 
 model_path = PROJECT_ROOT / "models" / "best.pt"
 
-# Pretrained model:
+# Model class:
 # 0 = pothole
 
 pothole_class_id = 0
@@ -132,6 +134,7 @@ pothole_class_id = 0
 
 @st.cache_resource
 def load_model(path):
+
     return YOLO(str(path))
 
 
@@ -211,7 +214,7 @@ if input_option == "Upload Image":
             )
 
             # -----------------------------------------
-            # Calculate average confidence
+            # Average confidence
             # -----------------------------------------
 
             if confidences:
@@ -263,7 +266,9 @@ if input_option == "Upload Image":
 
             if confidences:
 
-                st.subheader("📈 Individual Detections")
+                st.subheader(
+                    "📈 Individual Detections"
+                )
 
                 for i, confidence in enumerate(
                     confidences,
@@ -340,17 +345,11 @@ else:
 
             self.average_confidence = 0.0
 
-            # Time of previous voice alert
-            self.last_voice_time = 0
+            # Time of previous detection
+            self.last_detection_time = 0
 
-            # Wait 5 seconds before speaking again
-            self.voice_cooldown = 5
-            #cpu optimization
-            self.frame_count=0
-            #run yolo every 3rd frame 
-            self.process_every = 3
-            #store last processed frame
-            self.last_processed_frame = None
+            # Detection cooldown
+            self.detection_cooldown = 5
 
 
         def recv(self, frame):
@@ -362,23 +361,42 @@ else:
             img = frame.to_ndarray(
                 format="bgr24"
             )
-            self.frame_count += 1
-            
-            # CPU optimization: Process every 3rd frame
-            if self.frame_count % self.process_every != 0:
-                if self.last_processed_frame is not None:
-                    return frame.from_ndarray(
-                        self.last_processed_frame,
-                        format="bgr24"
-                    )
-                return frame 
+
+
+            # -----------------------------------------
+            # Resize image for faster YOLO inference
+            # -----------------------------------------
+
+            height, width = img.shape[:2]
+
+            max_width = 640
+
+            if width > max_width:
+
+                scale = max_width / width
+
+                new_width = int(width * scale)
+
+                new_height = int(height * scale)
+
+                inference_img = cv2.resize(
+                    img,
+                    (new_width, new_height)
+                )
+
+            else:
+
+                inference_img = img
+
+
             # -----------------------------------------
             # YOLO prediction
             # -----------------------------------------
 
             results = model.predict(
-                source=img,
+                source=inference_img,
                 conf=0.50,
+                imgsz=320,
                 verbose=False
             )
 
@@ -390,13 +408,17 @@ else:
             # -----------------------------------------
 
             pothole_count = 0
+
             confidences = []
 
 
             for box in result.boxes:
 
                 class_id = int(box.cls[0])
-                confidence = float(box.conf[0])
+
+                confidence = float(
+                    box.conf[0]
+                )
 
                 if class_id == pothole_class_id:
 
@@ -425,7 +447,7 @@ else:
 
 
             # -----------------------------------------
-            # Save values
+            # Save detection values
             # -----------------------------------------
 
             self.pothole_count = pothole_count
@@ -433,49 +455,6 @@ else:
             self.average_confidence = (
                 average_confidence
             )
-
-
-            # =========================================
-            # LIVE VOICE ALERT
-            # =========================================
-
-            current_time = time.time()
-
-
-            if (
-                pothole_count > 0
-                and
-                current_time - self.last_voice_time
-                >= self.voice_cooldown
-            ):
-
-                if pothole_count == 1:
-
-                    message = (
-                        "Warning. "
-                        "One pothole detected ahead. "
-                        f"Confidence is "
-                        f"{average_confidence:.0f} percent."
-                    )
-
-                else:
-
-                    message = (
-                        "Warning. "
-                        f"{pothole_count} potholes detected ahead. "
-                        f"Average confidence is "
-                        f"{average_confidence:.0f} percent."
-                    )
-
-
-                # -------------------------------------
-                # Voice
-                # -------------------------------------
-
-                voice_alert(message)
-
-
-                self.last_voice_time = current_time
 
 
             # -----------------------------------------
@@ -491,11 +470,17 @@ else:
 
             cv2.putText(
                 annotated_frame,
+
                 f"Potholes: {pothole_count}",
+
                 (20, 40),
+
                 cv2.FONT_HERSHEY_SIMPLEX,
+
                 1,
+
                 (0, 255, 0),
+
                 2
             )
 
@@ -506,17 +491,24 @@ else:
 
             cv2.putText(
                 annotated_frame,
-                f"Confidence: {average_confidence:.2f}%",
+
+                f"Confidence: "
+                f"{average_confidence:.2f}%",
+
                 (20, 80),
+
                 cv2.FONT_HERSHEY_SIMPLEX,
+
                 0.8,
+
                 (0, 255, 0),
+
                 2
             )
 
 
             # -----------------------------------------
-            # Return frame
+            # Return frame immediately
             # -----------------------------------------
 
             return frame.from_ndarray(
@@ -530,6 +522,7 @@ else:
     # =====================================================
 
     webrtc_streamer(
+
         key="pothole-live-camera",
 
         video_processor_factory=PotholeProcessor,
@@ -545,12 +538,15 @@ else:
         },
 
         media_stream_constraints={
+
             "video": {
+
                 "facingMode": {
-                    "ideal" : "environment"
+                    "ideal": "environment"
                 }
 
             },
+
             "audio": False
         },
 
