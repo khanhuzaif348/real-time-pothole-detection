@@ -6,6 +6,7 @@ venv/
 __pycache__/
 *.pyc
 *.pyo
+*.pyd
 
 # =========================
 # IDE
@@ -60,3 +61,6 @@ models/.cache/
 # =========================
 .DS_Store
 Thumbs.db
+
+
+*.cache
